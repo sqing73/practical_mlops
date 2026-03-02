@@ -1,0 +1,9 @@
+stages:
+  ingest:
+    cmd: python src/ingestion.py --dataset ealaxi/paysim1
+    deps:
+      - src/ingestion.py
+      - .kaggle/kaggle.json
+    outs:
+      - data/raw/ealaxi/paysim1:
+          persist: true
