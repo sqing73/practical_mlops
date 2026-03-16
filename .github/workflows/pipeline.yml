@@ -49,10 +49,10 @@ jobs:
 
       - name: Configure Kaggle credentials
         run: |
-          mkdir -p ~/.kaggle
+          mkdir -p ~/.config/kaggle
           echo '{"username":"${{ secrets.KAGGLE_USERNAME }}","key":"${{ secrets.KAGGLE_KEY }}"}' \
-            > ~/.kaggle/kaggle.json
-          chmod 600 ~/.kaggle/kaggle.json
+            > ~/.config/kaggle/kaggle.json
+          chmod 600 ~/.config/kaggle/kaggle.json
 
       - name: Pull cached DVC outputs from S3
         run: dvc pull --run-cache
