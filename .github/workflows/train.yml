@@ -1,0 +1,152 @@
+# .github/workflows/train.yml
+#
+# Workflow 3: MLflow training run + model promotion
+# Triggered automatically after pipeline.yml succeeds on main.
+# Can also be triggered manually (workflow_dispatch) at any time.
+#
+# Required GitHub Secrets:
+#   AWS_ACCESS_KEY_ID         — IAM key (same as pipeline.yml, for S3 artifact store)
+#   AWS_SECRET_ACCESS_KEY     — Matching secret
+#   MLFLOW_TRACKING_URI       — URL of your remote MLflow server
+#                               e.g. http://ec2-xx-xx-xx-xx.compute.amazonaws.com:5000
+#   MLFLOW_TRACKING_USERNAME  — (Optional) If MLflow auth is enabled
+#   MLFLOW_TRACKING_PASSWORD  — (Optional) If MLflow auth is enabled
+
+name: Train — MLflow Run & Promote
+
+on:
+  # Auto-trigger when the DVC pipeline completes successfully on main
+  workflow_run:
+    workflows: ["Pipeline — DVC Repro"]
+    types: [completed]
+    branches: [main]
+
+  # Manual trigger for on-demand training runs
+  workflow_dispatch:
+    inputs:
+      n_trials:
+        description: "Number of Optuna HPO trials"
+        required: false
+        default: "3"
+
+jobs:
+  # Only proceed if the triggering pipeline workflow actually succeeded
+  # (Not needed for workflow_dispatch, which always runs)
+  check-trigger:
+    name: Check upstream status
+    runs-on: self-hosted
+    outputs:
+      should_run: ${{ steps.check.outputs.should_run }}
+    steps:
+      - id: check
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "should_run=true" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.event.workflow_run.conclusion }}" == "success" ]]; then
+            echo "should_run=true" >> $GITHUB_OUTPUT
+          else
+            echo "should_run=false" >> $GITHUB_OUTPUT
+          fi
+
+  train:
+    name: Run training & log to MLflow
+    needs: check-trigger
+    if: needs.check-trigger.outputs.should_run == 'true'
+    runs-on: self-hosted
+
+    outputs:
+      # Pass the best accuracy downstream to the promote job
+      best_accuracy: ${{ steps.get_best.outputs.best_accuracy }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Configure AWS credentials (for S3 MLflow artifact store)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Pull processed data from DVC remote
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        run: dvc pull data/processed/
+
+      - name: Run training
+        env:
+          MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
+          MLFLOW_TRACKING_USERNAME: ${{ secrets.MLFLOW_TRACKING_USERNAME }}
+          MLFLOW_TRACKING_PASSWORD: ${{ secrets.MLFLOW_TRACKING_PASSWORD }}
+        run: |
+          python src/train.py \
+            --data-file data/processed/ealaxi/paysim1/data.csv
+
+      - name: Fetch best run accuracy from MLflow
+        id: get_best
+        env:
+          MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
+          MLFLOW_TRACKING_USERNAME: ${{ secrets.MLFLOW_TRACKING_USERNAME }}
+          MLFLOW_TRACKING_PASSWORD: ${{ secrets.MLFLOW_TRACKING_PASSWORD }}
+        run: |
+          BEST=$(python src/utils/mlflow_utils.py get-best-accuracy \
+            --experiment-name "Decision Tree Hyperparameter Tuning" \
+            --metric-name "test_accuracy")
+          echo "best_accuracy=$BEST" >> $GITHUB_OUTPUT
+          echo "Best accuracy: $BEST"
+
+      - name: Post summary to job output
+        run: |
+          echo "## 🏆 Training Results" >> $GITHUB_STEP_SUMMARY
+          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|" >> $GITHUB_STEP_SUMMARY
+          echo "| Best test_accuracy | ${{ steps.get_best.outputs.best_accuracy }} |" >> $GITHUB_STEP_SUMMARY
+
+  promote:
+    name: Promote model to Staging (if accuracy ≥ threshold)
+    needs: train
+    runs-on: self-hosted
+    # Gate promotion: only promote if accuracy >= 0.90
+    if: needs.train.outputs.best_accuracy >= '0.90'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: pip
+
+      - name: Install mlflow
+        run: pip install mlflow==$(grep mlflow requirements.txt | cut -d= -f3)
+
+      - name: Register & promote best model in MLflow Model Registry
+        env:
+          MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
+          MLFLOW_TRACKING_USERNAME: ${{ secrets.MLFLOW_TRACKING_USERNAME }}
+          MLFLOW_TRACKING_PASSWORD: ${{ secrets.MLFLOW_TRACKING_PASSWORD }}
+        run: |
+          python src/utils/mlflow_utils.py promote-model \
+            --experiment-name "Decision Tree Hyperparameter Tuning" \
+            --model-name "fraud-detection-dt" \
+            --metric-name "test_accuracy" \
+            --alias "Staging"
+
+      - name: Post promotion summary
+        run: |
+          echo "## 🚀 Model Promoted" >> $GITHUB_STEP_SUMMARY
+          echo "Model **fraud-detection-dt** promoted to **Staging**" >> $GITHUB_STEP_SUMMARY
+          echo "Accuracy: ${{ needs.train.outputs.best_accuracy }}" >> $GITHUB_STEP_SUMMARY

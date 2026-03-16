@@ -1,0 +1,62 @@
+schema: '2.0'
+stages:
+  ingest:
+    cmd: python src/ingestion.py --dataset ealaxi/paysim1
+    deps:
+    - path: .kaggle/kaggle.json
+      hash: md5
+      md5: 3ebe771b875ce701740d49bf25eeba48
+      size: 77
+    - path: src/ingestion.py
+      hash: md5
+      md5: 4320369c9ad9f75156b3ed2b53715bc3
+      size: 735
+    outs:
+    - path: data/raw/ealaxi/paysim1/PS_20174392719_1491204439457_log.csv
+      hash: md5
+      md5: e92a5f7447f43712f1dca473d0b0fa85
+      size: 493534783
+  eda:
+    cmd: python src/eda.py --data-file 
+      data/raw/ealaxi/paysim1/PS_20174392719_1491204439457_log.csv 
+      --artifacts-dir artifacts/ealaxi/paysim1
+    deps:
+    - path: data/raw/ealaxi/paysim1/PS_20174392719_1491204439457_log.csv
+      hash: md5
+      md5: e92a5f7447f43712f1dca473d0b0fa85
+      size: 493534783
+    - path: src/eda.py
+      hash: md5
+      md5: 3f64c207fd13143d3d5c811280b4f205
+      size: 3086
+    outs:
+    - path: artifacts/ealaxi/paysim1/fraud_counts.png
+      hash: md5
+      md5: bbd10a3f4171663845316d96de2fa240
+      size: 33135
+    - path: artifacts/ealaxi/paysim1/fraud_counts_by_type.png
+      hash: md5
+      md5: dc62cc58adf53be54922057b0784e3a9
+      size: 26903
+    - path: artifacts/ealaxi/paysim1/fraud_only_by_type.png
+      hash: md5
+      md5: 812f23caf8c3e0190fea17d9fed425ba
+      size: 23549
+  preprocess:
+    cmd: python src/preprocess.py --data-file 
+      data/raw/ealaxi/paysim1/PS_20174392719_1491204439457_log.csv 
+      --processed-file-dir data/processed/ealaxi/paysim1
+    deps:
+    - path: data/raw/ealaxi/paysim1/PS_20174392719_1491204439457_log.csv
+      hash: md5
+      md5: e92a5f7447f43712f1dca473d0b0fa85
+      size: 493534783
+    - path: src/preprocess.py
+      hash: md5
+      md5: 1d1ab5a585d5703b9864a1f5cdf90995
+      size: 1155
+    outs:
+    - path: data/processed/ealaxi/paysim1/data.csv
+      hash: md5
+      md5: 7fb0303c78599c142b23b7d07d39f181
+      size: 218211267

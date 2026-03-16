@@ -1,9 +1,9 @@
 import argparse
 from pathlib import Path
+
 import matplotlib.pyplot as plt
-import seaborn as sns
-import random
 import pandas as pd
+import seaborn as sns
 
 root = Path(__file__).parent.parent
 
@@ -56,11 +56,11 @@ def draw_eda(data_file, artifacts_dir):
     # Specific view: Only the fraud cases
     plt.figure(figsize=(10, 6))
     sns.barplot(
-        data=type_summary[type_summary['fraud_cases'] > 0], 
-        x='type', 
-        y='fraud_cases', 
-        hue='type', 
-        palette='magma', 
+        data=type_summary[type_summary['fraud_cases'] > 0],
+        x='type',
+        y='fraud_cases',
+        hue='type',
+        palette='magma',
         legend=False
     )
     plt.title('Types Containing Fraud Cases')
@@ -76,5 +76,5 @@ if __name__ == "__main__":
     parser.add_argument("--artifacts-dir", type=str, required=True, help="Path to artifacts directory")
     args = parser.parse_args()
     draw_eda(args.data_file, args.artifacts_dir)
-    
+
 

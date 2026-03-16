@@ -5,5 +5,30 @@ stages:
       - src/ingestion.py
       - .kaggle/kaggle.json
     outs:
-      - data/raw/ealaxi/paysim1:
-          persist: true
+      - data/raw/ealaxi/paysim1/PS_20174392719_1491204439457_log.csv
+
+  eda:
+    cmd: "python src/eda.py \
+          --data-file data/raw/ealaxi/paysim1/PS_20174392719_1491204439457_log.csv \
+          --artifacts-dir artifacts/ealaxi/paysim1"
+    deps:
+      - src/eda.py
+      - data/raw/ealaxi/paysim1/PS_20174392719_1491204439457_log.csv
+    outs:
+      - artifacts/ealaxi/paysim1/fraud_counts.png
+      - artifacts/ealaxi/paysim1/fraud_counts_by_type.png
+      - artifacts/ealaxi/paysim1/fraud_only_by_type.png
+
+  preprocess:
+    cmd: "python src/preprocess.py \
+          --data-file data/raw/ealaxi/paysim1/PS_20174392719_1491204439457_log.csv \
+          --processed-file-dir data/processed/ealaxi/paysim1"
+    deps:
+      - src/preprocess.py
+      - data/raw/ealaxi/paysim1/PS_20174392719_1491204439457_log.csv
+    outs:
+      - data/processed/ealaxi/paysim1/data.csv
+    
+  train:
+    cmd: "python src/train.py \
+          --data-file data/processed/ealaxi/paysim1/data.csv"

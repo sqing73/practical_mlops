@@ -1,0 +1,75 @@
+# .github/workflows/pipeline.yml
+#
+# Workflow 2: DVC pipeline repro
+# Runs ONLY on push to main (i.e., after a PR is merged).
+# Pulls cached data from S3 DVC remote, re-runs changed stages, pushes results.
+#
+# Required GitHub Secrets:
+#   AWS_ACCESS_KEY_ID         — IAM key with S3 read/write on the DVC bucket
+#   AWS_SECRET_ACCESS_KEY     — Matching secret
+#   KAGGLE_USERNAME           — Kaggle account username
+#   KAGGLE_KEY                — Kaggle API key
+
+name: Pipeline — DVC Repro
+
+on:
+  push:
+    branches: [main]
+    paths:
+      # Only re-run the pipeline if source code or pipeline definition changes
+      - "src/**"
+      - "dvc.yaml"
+      - "dvc.lock"
+      - "params.yaml"
+
+jobs:
+  dvc-repro:
+    name: Reproduce DVC pipeline
+    runs-on: self-hosted
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Configure AWS credentials (for S3 DVC remote)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1   # Change to your bucket's region
+
+      - name: Configure Kaggle credentials
+        run: |
+          mkdir -p ~/.kaggle
+          echo '{"username":"${{ secrets.KAGGLE_USERNAME }}","key":"${{ secrets.KAGGLE_KEY }}"}' \
+            > ~/.kaggle/kaggle.json
+          chmod 600 ~/.kaggle/kaggle.json
+
+      - name: Pull cached DVC outputs from S3
+        run: dvc pull --run-cache
+        # This avoids re-downloading the 470 MB CSV from Kaggle if it hasn't changed.
+        # If the cache is cold, DVC falls back to running the ingest stage.
+
+      - name: Reproduce changed pipeline stages
+        run: dvc repro
+        # dvc repro is smart: it only re-runs stages whose dependencies have changed.
+
+      - name: Push new DVC outputs to S3
+        run: dvc push
+
+      - name: Commit updated dvc.lock (if changed)
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add dvc.lock
+          git diff --staged --quiet || git commit -m "ci: update dvc.lock [skip ci]"
+          git push
